@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Gothic Remake – Lock Solver</title>
+<style>
+  :root {
+    --bg:     #12111a;
+    --panel:  #1c1b2e;
+    --deep:   #0d0c18;
+    --gold:   #c9a84c;
+    --accent: #e94560;
+    --green:  #2ecc71;
+    --blue:   #3a86ff;
+    --text:   #e8e8e8;
+    --dim:    #666;
+    --slot:   #0d1b2a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--text); font-family: Arial, sans-serif; min-height: 100vh; }
+
+  /* ── Header ── */
+  header { background: var(--deep); text-align: center; padding: 10px; border-bottom: 2px solid var(--gold); }
+  header h1 { color: var(--gold); font-family: Georgia, serif; font-size: clamp(14px, 4vw, 20px); letter-spacing: 2px; }
+
+  /* ── Top bar ── */
+  .topbar { background: var(--panel); display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .topbar label { color: var(--text); font-size: 14px; }
+  /* drum roller for N */
+  .n-drum { display: flex; flex-direction: column; align-items: center; touch-action: none; user-select: none; cursor: ns-resize; background: var(--slot); border: 1px solid #444; border-radius: 5px; padding: 1px 2px; min-width: 40px; }
+  /* row = 10px adj + 26px current + 10px adj = 46px total, current perfectly centered */
+  .n-drum-row { display: flex; flex-direction: column; align-items: center; overflow: hidden; height: 46px; position: relative; }
+  .n-drum-window { position: absolute; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+  .n-drum-window::before, .n-drum-window::after { content: ''; position: absolute; left: 0; right: 0; height: 10px; }
+  .n-drum-window::before { top: 0; background: linear-gradient(var(--slot), transparent); }
+  .n-drum-window::after  { bottom: 0; background: linear-gradient(transparent, var(--slot)); }
+  /* highlight band — exactly around the 26px current item */
+  .n-drum-row::after { content: ''; position: absolute; left: 2px; right: 2px; top: 50%; transform: translateY(-50%); height: 28px; background: #2a2a3e; border-radius: 4px; border: 1px solid var(--gold); pointer-events: none; }
+  .n-drum-strip { display: flex; flex-direction: column; align-items: center; }
+  .n-drum-item { height: 26px; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; color: var(--gold); min-width: 36px; line-height: 1; position: relative; z-index: 2; }
+  .n-drum-item.adj { font-size: 10px; color: #555; height: 10px; }
+  .n-drum-btn { background: none; border: none; color: #555; font-size: 9px; padding: 1px 6px; cursor: pointer; line-height: 1; width: 100%; text-align: center; }
+  .n-drum-btn:hover { color: var(--gold); }
+  .n-drum-btn:active { color: var(--gold); }
+  .btn { display: inline-flex; align-items: center; gap: 4px; padding: 7px 14px; border: none; border-radius: 5px; font-size: 13px; font-weight: bold; cursor: pointer; user-select: none; }
+  .btn-red    { background: var(--accent); color: #fff; }
+  .btn-gold   { background: var(--gold); color: var(--deep); }
+  .btn-blue   { background: #2a4a6a; color: var(--text); }
+  .btn-green  { background: var(--green); color: var(--deep); }
+  .btn-dark   { background: #333; color: var(--text); }
+  .btn:active { filter: brightness(0.85); }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+  .ml-auto { margin-left: auto; }
+
+  /* ── Tumblers ── */
+  #tumblers-wrap { background: var(--panel); padding: 12px 8px; border-bottom: 1px solid #222; }
+  .tumbler-row { display: flex; align-items: center; height: 48px; margin: 3px 0; }
+  .t-label { width: 34px; text-align: right; padding-right: 8px; font-size: 13px; font-weight: bold; color: var(--dim); flex-shrink: 0; }
+  .t-label.sel { color: var(--gold); }
+  .t-label.done::after { content: '✓'; display: block; font-size: 9px; color: var(--green); line-height: 1; font-weight: bold; }
+  /* track: invisible housing, 13 slots wide — bar (7 slots) slides fully within */
+  .t-track { position: relative; flex: 1; height: 42px; background: transparent; cursor: pointer; touch-action: pan-y; user-select: none; overflow: hidden; }
+  /* bar: always 50% of track width (= 6 slots), slides left/right */
+  .t-bar { position: absolute; width: 50%; top: 6px; bottom: 6px; background: #28224a; border: 1px solid #44406a; border-radius: 3px; }
+  /* selection shown on the bar border */
+  .t-track.sel .t-bar { background: #3d2e5e; border-color: var(--gold); border-width: 2px; }
+  /* holes slide with the bar */
+  .t-hole { position: absolute; top: 50%; transform: translate(-50%, -50%); width: min(18px, 52%); height: min(18px, 52%); border-radius: 50%; background: var(--deep); border: 1px solid #3a3a5a; z-index: 2; }
+  .t-hole.center-hole::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; border: 1px solid var(--gold); }
+  /* pin: fixed at center of track (50%), sits on top */
+  .t-pin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(18px, 52%); height: min(18px, 52%); border-radius: 50%; border: 2px solid; z-index: 10; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: bold; }
+  .t-pin.locked  { background: #444; border-color: #666; }
+  .t-pin.unlocked{ background: var(--green); border-color: white; color: white; }
+  .t-pin.active  { background: var(--accent); border-color: var(--gold); }
+  .t-num { width: 26px; text-align: center; font-size: 13px; font-weight: bold; flex-shrink: 0; padding-left: 4px; color: var(--text); }
+  .t-num.at3 { color: var(--gold); }
+  .t-arrows { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; padding: 0 4px; }
+  .t-arrows button { background: #2a2a3e; border: none; color: var(--text); font-size: 11px; width: 22px; height: 16px; border-radius: 3px; cursor: pointer; line-height: 1; }
+  .t-arrows button:active { background: var(--gold); color: var(--deep); }
+
+  /* ── Hint ── */
+  .hint { text-align: center; font-size: 11px; color: var(--dim); padding: 4px; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; background: var(--deep); border-bottom: 2px solid #222; }
+  .tab { flex: 1; padding: 10px 4px; text-align: center; font-size: 12px; color: var(--dim); cursor: pointer; border-bottom: 3px solid transparent; transition: .15s; }
+  .tab.active { color: var(--gold); border-bottom-color: var(--gold); font-weight: bold; }
+  .tab-content { display: none; padding: 12px; }
+  .tab-content.active { display: block; }
+
+  /* ── Setup tab ── */
+  .setup-desc { font-size: 12px; color: var(--dim); margin-bottom: 10px; line-height: 1.5; }
+  .pos-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .pos-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .pos-cell label { font-size: 11px; color: var(--gold); }
+  .pos-cell input { width: 46px; background: var(--slot); color: var(--text); border: 1px solid #333; border-radius: 4px; padding: 5px; font-size: 14px; text-align: center; }
+
+  /* ── Matrix ── */
+  .matrix-wrap { overflow-x: auto; }
+  table.matrix { border-collapse: collapse; font-size: 13px; }
+  table.matrix th { color: var(--dim); padding: 4px 6px; text-align: center; font-weight: normal; }
+  table.matrix td { padding: 3px 4px; }
+  table.matrix td.row-label { color: var(--gold); font-weight: bold; padding-right: 8px; }
+  table.matrix td.diag { background: #2a2a3e; color: var(--gold); text-align: center; width: 46px; padding: 4px; border-radius: 3px; font-weight: bold; }
+  table.matrix button.cell { width: 46px; height: 32px; background: var(--slot); color: var(--text); border: 1px solid #333; border-radius: 4px; font-size: 15px; font-weight: bold; text-align: center; cursor: pointer; transition: background .1s; }
+  table.matrix button.cell:hover { background: #2a2a3e; }
+  table.matrix button.cell[data-v="1"]  { color: #5f8; border-color: #3a6a3a; }
+  table.matrix button.cell[data-v="-1"] { color: #f86; border-color: #6a3a3a; }
+  table.matrix button.cell[data-v="0"]  { color: var(--dim); }
+
+  /* ── Learn tab ── */
+  .learn-status { background: var(--panel); border-left: 3px solid var(--blue); padding: 8px 10px; margin-bottom: 10px; font-size: 13px; line-height: 1.6; border-radius: 0 4px 4px 0; }
+  .learn-status.ok { border-left-color: var(--green); }
+  .learn-btns { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+
+  /* ── Solve tab ── */
+  .solve-result { background: var(--panel); border-left: 3px solid var(--gold); padding: 8px 10px; margin-bottom: 10px; font-size: 13px; border-radius: 0 4px 4px 0; }
+  .sol-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .sol-nav .step-label { color: var(--gold); font-weight: bold; font-size: 14px; margin-right: auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+  .chip { padding: 4px 8px; border-radius: 4px; font-size: 12px; background: #2a2a3e; color: var(--text); cursor: pointer; border: 1px solid transparent; }
+  .chip.active { background: var(--gold); color: var(--deep); font-weight: bold; }
+  .chip:active { filter: brightness(0.85); }
+
+  /* ── Section label ── */
+  .section { color: var(--gold); font-size: 12px; font-weight: bold; margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── File row ── */
+  .file-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #file-input { display: none; }
+
+  /* ── Responsive ── */
+  @media (max-width: 420px) {
+    table.matrix button.cell { width: 38px; font-size: 13px; }
+    .t-arrows { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header><h1>⚔ GOTHIC REMAKE – LOCK SOLVER ⚔</h1></header>
+
+<div class="topbar">
+  <label>Zapadek:</label>
+  <div class="n-drum" id="n-drum">
+    <button class="n-drum-btn" id="n-up">▲</button>
+    <div class="n-drum-row">
+      <div class="n-drum-window"></div>
+      <div class="n-drum-strip" id="n-strip">
+        <div class="n-drum-item adj" id="n-prev"></div>
+        <div class="n-drum-item" id="n-cur">5</div>
+        <div class="n-drum-item adj" id="n-next"></div>
+      </div>
+    </div>
+    <button class="n-drum-btn" id="n-dn">▼</button>
+  </div>
+  <div class="ml-auto" style="display:flex;gap:6px">
+    <button class="btn btn-blue" onclick="saveFile()">💾 Zapisz</button>
+    <button class="btn btn-blue" onclick="document.getElementById('file-input').click()">📂 Wczytaj</button>
+    <input type="file" id="file-input" accept=".json" onchange="loadFile(event)">
+  </div>
+</div>
+
+<div id="tumblers-wrap"></div>
+<div class="hint">Kliknij wiersz lub użyj przycisków ◀▶ &nbsp;·&nbsp; W/S = góra/dół &nbsp;·&nbsp; A/D = lewo/prawo</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab(0)">1 · Pozycja</div>
+  <div class="tab" onclick="switchTab(1)">2 · Efekty</div>
+  <div class="tab" onclick="switchTab(2)">3 · Rozwiązanie</div>
+</div>
+
+<!-- TAB 0: Setup -->
+<div class="tab-content active" id="tab-0">
+  <p class="setup-desc">Ustaw pozycje startowe zapadek zgodnie z grą.<br>0 = maks lewo &nbsp;·&nbsp; 3 = środek ✓ &nbsp;·&nbsp; 6 = maks prawo</p>
+  <div class="section">Pozycje startowe</div>
+  <div class="pos-row" id="pos-inputs"></div>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <button class="btn btn-gold" onclick="confirmInitial()" style="flex:1;justify-content:center;padding:12px;font-size:14px">
+      ✔ Zatwierdź pozycje → przejdź do efektów
+    </button>
+    <button class="btn btn-dark" onclick="resetPositions()" title="Resetuj pozycje do 3">↺ Reset</button>
+  </div>
+  <p id="setup-msg" style="margin-top:8px;font-size:12px;color:var(--green)"></p>
+</div>
+
+<!-- TAB 1: Learn -->
+<div class="tab-content" id="tab-1">
+  <div class="learn-status" id="learn-status">
+    Zaznacz zapadkę, naciśnij ◀ lub ▶ żeby zacząć test.
+  </div>
+  <div class="learn-btns">
+    <button class="btn btn-green" id="confirm-btn" disabled onclick="learnConfirm()">✔ Potwierdź efekty</button>
+    <button class="btn btn-dark"  id="cancel-btn"  disabled onclick="learnCancel()">✖ Anuluj test</button>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <div class="section" style="margin:0">Macierz efektów</div>
+    <button class="btn btn-dark" onclick="resetEffects()" title="Wyzeruj macierz efektów">↺ Reset efektów</button>
+  </div>
+  <div class="matrix-wrap"><table class="matrix" id="matrix-table"></table></div>
+</div>
+
+<!-- TAB 2: Solve -->
+<div class="tab-content" id="tab-2">
+  <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <button class="btn btn-gold" onclick="solve()" style="flex:1;justify-content:center;padding:12px;font-size:15px">🔓 ROZWIĄŻ ZAMEK</button>
+    <button class="btn btn-dark" onclick="resetToInitial()">↺ Reset</button>
+  </div>
+  <div id="solve-result" class="solve-result" style="display:none"></div>
+  <div id="sol-nav" class="sol-nav" style="display:none"></div>
+  <div id="sol-chips" class="chips"></div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────
+let N = 5;
+let state    = Array(N).fill(3);
+let initial  = Array(N).fill(3);
+let effects  = Array.from({length:N}, (_,i) => Array.from({length:N}, (_,j) => i===j?1:0));
+let selected = 0;
+let currentTab = 0;
+
+// Learn mode
+let learnPending = false;
+let learnSource  = -1;
+let learnDelta   = 0;   // position delta (not bar direction)
+let learnBefore  = [];
+let learnDone    = [];  // per-tumbler "confirmed" flag
+
+// Solution
+let solution  = null;
+let solStates = [];
+let solStep   = 0;
+
+// ── BFS ──────────────────────────────────────────────────────────────────
+function tryMove(st, eff, t, d) {
+  const ns = [...st];
+  for (let j = 0; j < ns.length; j++) {
+    ns[j] = ns[j] + eff[t][j] * d;
+    if (ns[j] < 0 || ns[j] > 6) return null;
+  }
+  return ns;
+}
+
+function solveBFS(init, eff) {
+  const n    = init.length;
+  const goal = Array(n).fill(3).join(',');
+  const start = init.join(',');
+  if (start === goal) return [];
+
+  const visited = new Map();
+  visited.set(start, null);
+  const queue = [init];
+  let qi = 0;
+  const LIMIT = 3_000_000;
+
+  while (qi < queue.length) {
+    const st = queue[qi++];
+    const key = st.join(',');
+    for (let t = 0; t < n; t++) {
+      for (const d of [-1, 1]) {
+        const ns = tryMove(st, eff, t, d);
+        if (!ns) continue;
+        const nk = ns.join(',');
+        if (!visited.has(nk)) {
+          visited.set(nk, {parent: key, t, d});
+          if (nk === goal) {
+            const path = [];
+            let cur = nk;
+            while (visited.get(cur)) {
+              const {parent, t: t_, d: d_} = visited.get(cur);
+              path.push([t_, d_]);
+              cur = parent;
+            }
+            path.reverse();
+            return path;
+          }
+          if (visited.size < LIMIT) queue.push(ns);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// ── Tumbler rendering ────────────────────────────────────────────────────
+const TRACK_W_PCT = 100;  // % of container
+const N_POS = 7;
+
+function renderTumblers() {
+  const wrap = document.getElementById('tumblers-wrap');
+  wrap.innerHTML = '';
+  for (let i = N - 1; i >= 0; i--) {
+    wrap.appendChild(makeTumblerRow(i));
+  }
+}
+
+// Track = 14 slots wide. Bar = 7 slots (= 50% of track). STEP = 100/14 % per slot.
+// Bar has 0.5-slot padding on each side beyond the outermost holes → holes never cross border.
+// Bar left  = (50 - (pos + 0.5) * STEP)%  →  hole[pos] under pin at 50%.
+// Hole[p]   = (50 + (p - pos) * STEP)%    →  slides with bar.
+// At pos=0: bar at 46%–96%. At pos=6: bar at 3%–53%. Always fully within track.
+const STEP = 100 / 14; // = 50/7 %
+
+function makeTumblerRow(i) {
+  const pos        = state[i];
+  const isSel      = (i === selected);
+  const atCenter   = (pos === 3);
+  const isLearnSrc = learnPending && i === learnSource;
+
+  const row = document.createElement('div');
+  row.className = 'tumbler-row';
+  row.dataset.idx = i;
+
+  // Label
+  const lbl = document.createElement('div');
+  const isDone = currentTab === 1 && learnDone[i];
+  lbl.className = 't-label' + (isSel ? ' sel' : '') + (isDone ? ' done' : '');
+  lbl.textContent = `Z${i+1}`;
+  row.appendChild(lbl);
+
+  // ◀ button
+  const btnL = document.createElement('div');
+  btnL.className = 't-arrows';
+  const bL = document.createElement('button');
+  bL.textContent = '◀';
+  bL.addEventListener('click', e => { e.stopPropagation(); moveSelected(i, -1); });
+  btnL.appendChild(bL);
+  row.appendChild(btnL);
+
+  // Track
+  const track = document.createElement('div');
+  track.className = 't-track' + (isSel ? ' sel' : '');
+  track.addEventListener('click', () => selectTumbler(i));
+
+  // Bar: width 50% (= 7 slots), left accounts for 0.5-slot padding
+  const bar = document.createElement('div');
+  bar.className = 't-bar';
+  bar.style.left = (50 - (pos + 0.5) * STEP) + '%';
+  track.appendChild(bar);
+
+  // 7 holes slide with bar
+  for (let p = 0; p < 7; p++) {
+    const hole = document.createElement('div');
+    hole.className = 't-hole' + (p === 3 ? ' center-hole' : '');
+    hole.style.left = (50 + (p - pos) * STEP) + '%';
+    track.appendChild(hole);
+  }
+
+  // Pin: fixed at 50% of track (center)
+  const pin = document.createElement('div');
+  pin.className = 't-pin ' + (atCenter ? 'unlocked' : (isLearnSrc ? 'active' : 'locked'));
+  pin.style.left = '50%';
+  pin.textContent = atCenter ? '✓' : '';
+  track.appendChild(pin);
+
+  // ── Touch: continuous proportional drag ──────────────────────────────
+  // Drag RIGHT = bar moves right = pos decreases (D key logic).
+  // tw0: track width saved at touchstart — getBoundingClientRect returns 0
+  // after renderTumblers() destroys & recreates DOM, causing divide-by-zero → extreme.
+  let tx0 = null, tp0 = null, tw0 = 0;
+
+  track.addEventListener('touchstart', e => {
+    tx0 = e.touches[0].clientX;
+    tp0 = state[i];
+    tw0 = track.getBoundingClientRect().width; // saved once; valid even after detach
+    selectTumbler(i);
+  }, {passive: true});
+
+  track.addEventListener('touchmove', e => {
+    if (tx0 === null || tw0 === 0) return;
+    // step = one visual slot (W/14) → 1:1 finger-to-bar tracking
+    const step = tw0 / 14;
+    const dx   = e.touches[0].clientX - tx0;
+    const newPos = Math.max(0, Math.min(6, tp0 - Math.round(dx / step)));
+    if (newPos === state[i]) return;
+
+    if (currentTab === 0) {
+      state[i] = newPos;
+      syncPosInputs();
+      renderTumblers();
+    } else if (currentTab === 1) {
+      if (!learnPending) {
+        if (newPos !== tp0) {
+          learnStart(i, newPos < tp0 ? 1 : -1);
+          tp0 = state[i]; tx0 = e.touches[0].clientX;
+        }
+      } else if (i !== learnSource) {
+        state[i] = newPos;
+        renderTumblers();
+      }
+    }
+  }, {passive: true});
+
+  track.addEventListener('touchend', () => { tx0 = null; tp0 = null; tw0 = 0; }, {passive: true});
+
+  row.appendChild(track);
+
+  // ▶ button
+  const btnR = document.createElement('div');
+  btnR.className = 't-arrows';
+  const bR = document.createElement('button');
+  bR.textContent = '▶';
+  bR.addEventListener('click', e => { e.stopPropagation(); moveSelected(i, 1); });
+  btnR.appendChild(bR);
+  row.appendChild(btnR);
+
+  // Position number
+  const num = document.createElement('div');
+  num.className = 't-num' + (atCenter ? ' at3' : '');
+  num.textContent = pos;
+  row.appendChild(num);
+
+  return row;
+}
+
+function selectTumbler(i) {
+  selected = i;
+  renderTumblers();
+}
+
+// delta: +1 = bar right (pos decreases), -1 = bar left (pos increases)
+// but internally we store pos. bar right = pos - 1 => delta_pos = -barDelta
+function moveSelected(i, barDelta) {
+  selectTumbler(i);
+  if (currentTab === 0) {
+    // Setup: freely move
+    state[i] = Math.max(0, Math.min(6, state[i] - barDelta));
+    syncPosInputs();
+    renderTumblers();
+  } else if (currentTab === 1) {
+    // Learn mode
+    if (!learnPending || i === learnSource) {
+      learnStart(i, barDelta);
+    } else {
+      // Adjust another tumbler freely
+      state[i] = Math.max(0, Math.min(6, state[i] - barDelta));
+      renderTumblers();
+    }
+  } else if (currentTab === 2) {
+    // Solution: step forward/back
+    if (barDelta < 0) solGoto(solStep + 1);
+    else solGoto(solStep - 1);
+  }
+}
+
+// ── Learn mode ────────────────────────────────────────────────────────────
+function learnStart(src, barDelta) {
+  const posDelta = -barDelta;  // bar right = pos decrease
+  learnBefore  = [...state];
+  learnSource  = src;
+  learnDelta   = posDelta;
+  learnPending = true;
+
+  state[src] = Math.max(0, Math.min(6, state[src] + posDelta));
+
+  const dir = barDelta > 0 ? 'PRAWO →' : '← LEWO';
+  document.getElementById('learn-status').className = 'learn-status';
+  document.getElementById('learn-status').innerHTML =
+    `🔵 Testowy ruch: <b>Z${src+1} ${dir}</b><br>
+     Sprawdź w grze które inne zapadki się ruszyły.<br>
+     Przesuń je tutaj żeby pasowały, potem <b>Potwierdź</b>.`;
+  document.getElementById('confirm-btn').disabled = false;
+  document.getElementById('cancel-btn').disabled  = false;
+  renderTumblers();
+}
+
+function learnConfirm() {
+  if (!learnPending) return;
+  for (let j = 0; j < N; j++) {
+    if (j === learnSource) { effects[learnSource][j] = 1; continue; }
+    const diff = state[j] - learnBefore[j];
+    effects[learnSource][j] = (learnDelta !== 0 && diff !== 0) ? Math.round(diff / learnDelta) : 0;
+  }
+  learnDone[learnSource] = true;
+  learnPending = false;
+  state = Array(N).fill(3);
+  document.getElementById('confirm-btn').disabled = true;
+  document.getElementById('cancel-btn').disabled  = true;
+  const dir = learnDelta < 0 ? 'PRAWO' : 'LEWO';
+  document.getElementById('learn-status').className = 'learn-status ok';
+  document.getElementById('learn-status').innerHTML =
+    `✅ Efekty Z${learnSource+1} (${dir}) zapisane. Przetestuj kolejną zapadkę.`;
+  renderMatrix();
+  renderTumblers();
+}
+
+function learnCancel() {
+  if (!learnPending) return;
+  state = [...learnBefore];
+  learnPending = false;
+  document.getElementById('confirm-btn').disabled = true;
+  document.getElementById('cancel-btn').disabled  = true;
+  document.getElementById('learn-status').className = 'learn-status';
+  document.getElementById('learn-status').textContent = 'Test anulowany — stan cofnięty.';
+  renderTumblers();
+}
+
+// ── Matrix ────────────────────────────────────────────────────────────────
+function renderMatrix() {
+  const tbl = document.getElementById('matrix-table');
+  tbl.innerHTML = '';
+
+  // Rows: Z5 at top, Z1 at bottom
+  for (let i = N - 1; i >= 0; i--) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="row-label">Z${i+1}:</td>`;
+    for (let j = 0; j < N; j++) {
+      const td = document.createElement('td');
+      if (i === j) {
+        td.className = 'diag';
+        td.textContent = '1';
+      } else {
+        const btn = document.createElement('button');
+        btn.className = 'cell';
+        const val = Math.max(-1, Math.min(1, effects[i][j] || 0));
+        effects[i][j] = val;
+        btn.dataset.v = val;
+        btn.textContent = val === 1 ? '+1' : val === -1 ? '-1' : '0';
+        btn.addEventListener('click', () => {
+          // cycle: -1 → 0 → +1 → -1
+          const next = effects[i][j] >= 1 ? -1 : effects[i][j] + 1;
+          effects[i][j] = next;
+          btn.dataset.v  = next;
+          btn.textContent = next === 1 ? '+1' : next === -1 ? '-1' : '0';
+          // mark this tumbler's row as done
+          learnDone[i] = true;
+          renderTumblers();
+        });
+        td.appendChild(btn);
+      }
+      tr.appendChild(td);
+    }
+    tbl.appendChild(tr);
+  }
+
+  // Column headers at the bottom (tfoot)
+  const tfoot = document.createElement('tfoot');
+  const hr = document.createElement('tr');
+  hr.innerHTML = '<th></th>' + Array.from({length:N}, (_,j) => `<th>→Z${j+1}</th>`).join('');
+  tfoot.appendChild(hr);
+  tbl.appendChild(tfoot);
+}
+
+// ── Setup tab ─────────────────────────────────────────────────────────────
+function renderPosInputs() {
+  const wrap = document.getElementById('pos-inputs');
+  wrap.innerHTML = '';
+  for (let i = 0; i < N; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'pos-cell';
+    cell.innerHTML = `<label>Z${i+1}</label>`;
+    const inp = document.createElement('input');
+    inp.type  = 'number';
+    inp.min   = '0';
+    inp.max   = '6';
+    inp.value = initial[i];
+    inp.addEventListener('change', () => {
+      const v = Math.max(0, Math.min(6, parseInt(inp.value) || 0));
+      inp.value = v;
+      initial[i] = v;
+      state[i]   = v;
+      renderTumblers();
+    });
+    cell.appendChild(inp);
+    wrap.appendChild(cell);
+  }
+}
+
+function syncPosInputs() {
+  document.querySelectorAll('#pos-inputs .pos-cell input').forEach((inp, i) => {
+    inp.value = state[i];
+    initial[i] = state[i];
+  });
+}
+
+function confirmInitial() {
+  initial = [...state];
+  document.getElementById('setup-msg').textContent = `✅ Pozycje startowe zapisane: [${initial.join(', ')}]`;
+  switchTab(1);
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function switchTab(idx) {
+  currentTab = idx;
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  document.querySelectorAll('.tab-content').forEach((c, i) => c.classList.toggle('active', i === idx));
+
+  if (idx === 0) {
+    // Restore initial positions when going back to setup tab
+    state = [...initial];
+    renderTumblers();
+  } else if (idx === 1) {
+    // Reset to center on entering learn tab
+    state = Array(N).fill(3);
+    learnPending = false;
+    learnSource  = -1;
+    learnDone    = Array(N).fill(false);
+    document.getElementById('confirm-btn').disabled = true;
+    document.getElementById('cancel-btn').disabled  = true;
+    document.getElementById('learn-status').className = 'learn-status';
+    document.getElementById('learn-status').textContent = 'Zaznacz zapadkę, naciśnij ◀ lub ▶ żeby zacząć test.';
+    renderTumblers();
+  }
+}
+
+// ── Solve ─────────────────────────────────────────────────────────────────
+function resetToInitial() {
+  state     = [...initial];
+  solution  = null;
+  solStates = [];
+  solStep   = 0;
+  document.getElementById('solve-result').style.display = 'none';
+  document.getElementById('sol-nav').style.display = 'none';
+  document.getElementById('sol-chips').innerHTML = '';
+  renderTumblers();
+}
+
+function solve() {
+  state = [...initial];
+  renderTumblers();
+  const resEl = document.getElementById('solve-result');
+  resEl.style.display = 'block';
+  resEl.style.borderLeftColor = 'var(--gold)';
+  resEl.textContent = '⏳ Szukam rozwiązania…';
+  document.getElementById('sol-nav').style.display = 'none';
+  document.getElementById('sol-chips').innerHTML = '';
+
+  const ini = [...initial];
+  const eff = effects.map(r => [...r]);
+
+  setTimeout(() => {
+    const path = solveBFS(ini, eff);
+    if (path === null) {
+      resEl.style.borderLeftColor = 'var(--accent)';
+      resEl.textContent = '❌ Nie znaleziono rozwiązania — sprawdź efekty.';
+      return;
+    }
+    if (path.length === 0) {
+      resEl.style.borderLeftColor = 'var(--green)';
+      resEl.textContent = '✅ Zamek już otwarty!';
+      return;
+    }
+    resEl.style.borderLeftColor = 'var(--green)';
+    resEl.textContent = `✅ Znaleziono rozwiązanie: ${path.length} ruchów`;
+
+    const states = [ini];
+    let s = [...ini];
+    for (const [t, d] of path) {
+      s = tryMove(s, eff, t, d);
+      states.push([...s]);
+    }
+    solution  = path;
+    solStates = states;
+    solStep   = 0;
+    renderSolution();
+  }, 20);
+}
+
+function solGoto(step) {
+  if (!solution) return;
+  solStep = Math.max(0, Math.min(step, solution.length));
+  state   = [...solStates[solStep]];
+  renderTumblers();
+  renderSolution();
+}
+
+function renderSolution() {
+  const nav = document.getElementById('sol-nav');
+  nav.style.display = 'flex';
+  nav.innerHTML = '';
+
+  const stepLbl = document.createElement('span');
+  stepLbl.className = 'step-label';
+  stepLbl.textContent = `Krok ${solStep} / ${solution.length}`;
+  nav.appendChild(stepLbl);
+
+  if (solStep > 0) {
+    const b = document.createElement('button');
+    b.className = 'btn btn-dark';
+    b.textContent = '◀';
+    b.onclick = () => solGoto(solStep - 1);
+    nav.appendChild(b);
+  }
+  if (solStep < solution.length) {
+    const [t, d] = solution[solStep];
+    const dir = d > 0 ? '← LEWO' : 'PRAWO →';
+    const b = document.createElement('button');
+    b.className = 'btn btn-green';
+    b.textContent = `▶  Z${t+1} ${dir}`;
+    b.onclick = () => solGoto(solStep + 1);
+    nav.appendChild(b);
+  }
+
+  const bFirst = document.createElement('button');
+  bFirst.className = 'btn btn-dark';
+  bFirst.textContent = '⏮';
+  bFirst.onclick = () => solGoto(0);
+  nav.appendChild(bFirst);
+
+  const bLast = document.createElement('button');
+  bLast.className = 'btn btn-dark';
+  bLast.textContent = '⏭';
+  bLast.onclick = () => solGoto(solution.length);
+  nav.appendChild(bLast);
+
+  // Chips
+  const chips = document.getElementById('sol-chips');
+  chips.innerHTML = '';
+  solution.forEach(([t, d], i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (i === solStep ? ' active' : '');
+    chip.textContent = `${i+1}. Z${t+1}${d > 0 ? '←' : '→'}`;
+    chip.onclick = () => solGoto(i + 1);
+    chips.appendChild(chip);
+  });
+}
+
+// ── Reset helpers ─────────────────────────────────────────────────────────
+function resetPositions() {
+  state   = Array(N).fill(3);
+  initial = Array(N).fill(3);
+  syncPosInputs();
+  renderTumblers();
+}
+
+function resetEffects() {
+  effects = Array.from({length:N}, (_,i) => Array.from({length:N}, (_,j) => i===j ? 1 : 0));
+  learnPending = false;
+  learnSource  = -1;
+  learnDone    = Array(N).fill(false);
+  state = Array(N).fill(3);
+  renderMatrix();
+  renderTumblers();
+  document.getElementById('learn-status').className = 'learn-status';
+  document.getElementById('learn-status').textContent = 'Zaznacz zapadkę, naciśnij ◀ lub ▶ żeby zacząć test.';
+  document.getElementById('confirm-btn').disabled = true;
+  document.getElementById('cancel-btn').disabled  = true;
+}
+
+// ── N change ──────────────────────────────────────────────────────────────
+function applyN(newN) {
+  if (newN !== undefined) N = Math.max(2, Math.min(10, newN));
+  drumSync();
+  state    = Array(N).fill(3);
+  initial  = Array(N).fill(3);
+  effects  = Array.from({length:N}, (_,i) => Array.from({length:N}, (_,j) => i===j?1:0));
+  selected = 0;
+  learnPending = false;
+  learnDone    = Array(N).fill(false);
+  solution = null;
+  solStates = [];
+  solStep = 0;
+  renderAll();
+}
+
+// ── Save / Load ───────────────────────────────────────────────────────────
+function saveFile() {
+  const data = { n: N, initial, effects };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'zamek.json';
+  a.click();
+}
+
+function loadFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      N        = parseInt(data.n);
+      initial  = data.initial.map(Number);
+      effects  = data.effects.map(r => r.map(Number));
+      state    = [...initial];
+      selected = 0;
+      learnPending = false;
+      solution = null;
+      solStates = [];
+      solStep = 0;
+      drumSync();
+      renderAll();
+    } catch(err) {
+      alert('Błąd wczytywania pliku: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+}
+
+// ── Keyboard ─────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'w' || e.key === 'W') { selected = (selected + 1) % N; renderTumblers(); }
+  if (e.key === 's' || e.key === 'S') { selected = (selected - 1 + N) % N; renderTumblers(); }
+  if (e.key === 'd' || e.key === 'D') moveSelected(selected, 1);
+  if (e.key === 'a' || e.key === 'A') moveSelected(selected, -1);
+  if (e.key === 'Enter') learnConfirm();
+  if (e.key === 'Escape') learnCancel();
+});
+
+// ── Init ─────────────────────────────────────────────────────────────────
+function renderAll() {
+  renderTumblers();
+  renderPosInputs();
+  renderMatrix();
+}
+
+renderAll();
+
+// ── N drum roller ─────────────────────────────────────────────────────────
+function drumSync() {
+  const cur  = document.getElementById('n-cur');
+  const prev = document.getElementById('n-prev');
+  const next = document.getElementById('n-next');
+  if (!cur) return;
+  cur.textContent  = N;
+  prev.textContent = N > 2  ? N - 1 : '';
+  next.textContent = N < 10 ? N + 1 : '';
+  // brief flash on limits
+  if (N === 2 || N === 10) {
+    cur.style.color = 'var(--accent)';
+    setTimeout(() => { cur.style.color = ''; }, 300);
+  }
+}
+
+(function() {
+  const drum = document.getElementById('n-drum');
+  if (!drum) return;
+
+  function changeN(delta) {
+    const newN = Math.max(2, Math.min(10, N + delta));
+    if (newN === N) return;
+    applyN(newN);
+  }
+
+  document.getElementById('n-up').addEventListener('click', e => { e.stopPropagation(); changeN(1); });
+  document.getElementById('n-dn').addEventListener('click', e => { e.stopPropagation(); changeN(-1); });
+
+  // touch drag: swipe UP = more tumblers, DOWN = fewer
+  let ty0 = null, lastStep = 0;
+  drum.addEventListener('touchstart', e => {
+    ty0 = e.touches[0].clientY;
+    lastStep = 0;
+  }, {passive: true});
+  drum.addEventListener('touchmove', e => {
+    if (ty0 === null) return;
+    const dy = ty0 - e.touches[0].clientY; // positive = swipe up
+    const step = Math.round(dy / 28);      // 28px per tick
+    const delta = step - lastStep;
+    if (delta !== 0) {
+      lastStep = step;
+      changeN(delta);
+    }
+  }, {passive: true});
+  drum.addEventListener('touchend', () => { ty0 = null; lastStep = 0; }, {passive: true});
+
+  drumSync();
+})();
+</script>
+</body>
+</html>
